@@ -1,0 +1,68 @@
+﻿--- 
+import BaseLayout from '../../layouts/BaseLayout.astro'; 
+import { getOrganizationsByState } from '../../lib/db'; 
+import { formatEin, slugify } from '../../lib/seo'; 
+ 
+export async function getStaticPaths() { 
+  const { getDistinctStates } = await import('../../lib/db'); 
+  const states = await getDistinctStates(); 
+  return states.map(s => ({ params: { state: s.toLowerCase() } })); 
+} 
+ 
+const { state } = Astro.params; 
+const orgs = await getOrganizationsByState(state); 
+ 
+const page = parseInt(Astro.url.searchParams.get('page') || '1'); 
+const perPage = 50; 
+const totalPages = Math.ceil(orgs.length / perPage); 
+const start = (page - 1) * perPage; 
+const paged = orgs.slice(start, start + perPage); 
+--- 
+ 
+<BaseLayout 
+  title={`Nonprofits in ${state.toUpperCase()} - Philanthropy.org`} 
+  description={`Browse ${orgs.length} nonprofit organizations in ${state.toUpperCase()}. View IRS Form 990 data.`} 
+> 
+  <h1 class="text-3xl font-bold mb-2">Nonprofits in {state.toUpperCase()}</h1> 
+  <p class="text-gray-500 mb-6">{orgs.length} organizations</p> 
+ 
+  <div class="space-y-3"> 
+    {paged.map(org => ( 
+      <a 
+        href={`/${org.ein}/${slugify(org.canonical_name)}`} 
+        class="block border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors" 
+      > 
+        <div class="font-semibold text-blue-700">{org.canonical_name}</div> 
+        <div class="text-sm text-gray-500 mt-1"> 
+          EIN: {formatEin(org.ein)} 
+          {org.city && ` | ${org.city}`} 
+          {org.ntee_category && ` | ${org.ntee_category}`} 
+        </div> 
+      </a> 
+    ))} 
+  </div> 
+ 
+  {totalPages > 1 && ( 
+    <div class="flex justify-center gap-2 mt-8"> 
+      {page > 1 && ( 
+        <a 
+          href={`/state/${state}?page=${page - 1}`} 
+          class="border border-gray-300 rounded px-4 py-2 hover:border-blue-300 transition-colors" 
+        > 
+          Previous 
+        </a> 
+      )} 
+      <span class="px-4 py-2 text-gray-500"> 
+        Page {page} of {totalPages} 
+      </span> 
+      {page < totalPages && ( 
+        <a 
+          href={`/state/${state}?page=${page + 1}`} 
+          class="border border-gray-300 rounded px-4 py-2 hover:border-blue-300 transition-colors" 
+        > 
+          Next 
+        </a> 
+      )} 
+    </div> 
+  )} 
+</BaseLayout>

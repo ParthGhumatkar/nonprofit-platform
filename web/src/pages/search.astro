@@ -1,0 +1,68 @@
+﻿--- 
+import BaseLayout from '../layouts/BaseLayout.astro'; 
+import { searchOrganizations } from '../lib/db'; 
+import { formatEin, slugify } from '../lib/seo'; 
+ 
+const query = (Astro.url.searchParams.get('q') || '').trim(); 
+let results: any[] = []; 
+if (query) { 
+  results = await searchOrganizations(query, 50); 
+} 
+--- 
+ 
+<BaseLayout 
+  title="Search Nonprofits - Philanthropy.org" 
+  description="Search IRS Form 990 filings for U.S. nonprofit organizations by name or EIN." 
+> 
+  <h1 class="text-3xl font-bold mb-6">Search Nonprofits</h1> 
+ 
+  <form class="flex gap-2 mb-8" method="get"> 
+    <input 
+      type="text" 
+      name="q" 
+      value={query} 
+      placeholder="Organization name or EIN..." 
+      class="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+    /> 
+    <button 
+      type="submit" 
+      class="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors" 
+    > 
+      Search 
+    </button> 
+  </form> 
+ 
+  {query && ( 
+    <div> 
+      <p class="text-gray-500 mb-4"> 
+        {results.length} result{results.length !== 1 ? 's' : ''} for "{query}" 
+      </p> 
+ 
+      {results.length === 0 ? ( 
+        <p class="text-gray-500">No results found. Try a different name or EIN.</p> 
+      ) : ( 
+        <div class="space-y-3"> 
+          {results.map(org => ( 
+            <a 
+              href={`/${org.ein}/${slugify(org.canonical_name)}`} 
+              class="block border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors" 
+            > 
+              <div class="font-semibold text-blue-700">{org.canonical_name}</div> 
+              <div class="text-sm text-gray-500 mt-1"> 
+                EIN: {formatEin(org.ein)} 
+                {org.city && ` | ${org.city}, ${org.state}`} 
+                {org.ntee_category && ` | ${org.ntee_category}`} 
+              </div> 
+            </a> 
+          ))} 
+        </div> 
+      )} 
+    </div> 
+  )} 
+ 
+  {!query && ( 
+    <div class="text-center py-12 text-gray-500"> 
+      <p class="text-lg">Enter an organization name or EIN to search.</p> 
+    </div> 
+  )} 
+</BaseLayout>

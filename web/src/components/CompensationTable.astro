@@ -1,0 +1,46 @@
+﻿--- 
+import { getCompensation } from "../lib/db"; 
+interface Props { filingId: number; } 
+const { filingId } = Astro.props; 
+const rows = await getCompensation(filingId); 
+const fmt = (v: any) => {
+  if (v == null) return '-';
+  const n = parseFloat(v);
+  if (isNaN(n)) return '-';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+}; 
+--- 
+
+<section>
+  <h2 class="text-2xl font-semibold tracking-tight text-gray-900 mb-6">Executive Compensation</h2>
+  {rows.length === 0 ? (
+    <p class="text-gray-500 text-sm italic">No compensation data reported in this filing.</p>
+  ) : (
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b-2 border-gray-100 text-left">
+            <th class="py-3 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">Name</th>
+            <th class="py-3 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">Title</th>
+            <th class="py-3 pr-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wide">Base</th>
+            <th class="py-3 pr-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wide">Bonus</th>
+            <th class="py-3 pr-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wide">Other</th>
+            <th class="py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wide">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr class={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+              <td class="py-3 pr-4 font-semibold text-gray-900">{r.person_name}</td>
+              <td class="py-3 pr-4 text-gray-500 max-w-[200px] truncate">{r.title || '-'}</td>
+              <td class="py-3 pr-4 text-right num text-gray-700">{fmt(r.base_comp)}</td>
+              <td class="py-3 pr-4 text-right num text-gray-700">{fmt(r.bonus)}</td>
+              <td class="py-3 pr-4 text-right num text-gray-700">{fmt(r.other_comp)}</td>
+              <td class="py-3 text-right num font-semibold text-gray-900">{fmt(r.total_comp)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</section>

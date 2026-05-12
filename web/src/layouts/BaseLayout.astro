@@ -1,0 +1,139 @@
+﻿---
+import '../styles/global.css';
+const { title, description, schema } = Astro.props;
+
+const PHILANTHROPY_BASE = 'https://philanthropy.org';
+const PLANNED_GIVING_URL = 'https://plannedgiving.com';
+const CHART_JS_CDN = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js';
+const ALPINE_JS_CDN = 'https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js';
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>{title}</title>
+<meta name="description" content={description} />
+<link rel="canonical" href={new URL(Astro.url.pathname, Astro.site).href} />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<script defer src={ALPINE_JS_CDN}></script>
+{schema && <script type="application/ld+json" set:html={JSON.stringify(schema)}></script>}
+</head>
+<body class="bg-white text-gray-700 antialiased">
+
+<header class="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm">
+  <div class="max-w-7xl mx-auto px-6 py-0 flex items-center justify-between h-14">
+    <a href="/" class="text-base font-bold tracking-tight" style="color:#1e40af">
+      Philanthropy<span class="text-gray-400 font-normal">.org</span>
+      <span class="ml-2 text-xs font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full align-middle">Nonprofit Data</span>
+    </a>
+    <nav class="hidden md:flex items-center gap-6 text-sm font-medium text-gray-500">
+      <a href="/search" class="hover:text-gray-900 transition-colors">Search</a>
+      <a href="/states" class="hover:text-gray-900 transition-colors">Browse States</a>
+      <a href={PHILANTHROPY_BASE} class="hover:text-gray-900 transition-colors">Main Site ↗</a>
+    </nav>
+    <a href="/search" class="md:hidden text-sm font-medium text-gray-500">Search</a>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-12"><slot /></main>
+
+<footer class="border-t border-gray-100 mt-20 bg-gray-50">
+  <div class="max-w-7xl mx-auto px-6 py-12 text-sm text-gray-500">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
+      <div>
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Explore</p>
+        <ul class="space-y-2">
+          <li><a href="/search" class="hover:text-gray-800 transition-colors">Search Nonprofits</a></li>
+          <li><a href="/states" class="hover:text-gray-800 transition-colors">Browse by State</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Resources</p>
+        <ul class="space-y-2">
+          <li><a href={`${PHILANTHROPY_BASE}/foundations`} class="hover:text-gray-800 transition-colors">Foundations Directory</a></li>
+          <li><a href={`${PHILANTHROPY_BASE}/jobs`} class="hover:text-gray-800 transition-colors">Job Board</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Publications</p>
+        <ul class="space-y-2">
+          <li><a href={`${PHILANTHROPY_BASE}/magazine`} class="hover:text-gray-800 transition-colors">GIVING Magazine</a></li>
+          <li><a href={PLANNED_GIVING_URL} class="hover:text-gray-800 transition-colors">PlannedGiving.com</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">About</p>
+        <ul class="space-y-2">
+          <li><a href={`${PHILANTHROPY_BASE}/about`} class="hover:text-gray-800 transition-colors">About Us</a></li>
+          <li><span class="text-gray-400">Data from IRS Form 990</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="pt-6 border-t border-gray-200 flex flex-col md:flex-row items-center justify-between gap-2">
+      <p class="text-xs text-gray-400">&copy; {new Date().getFullYear()} Philanthropy.org. Data sourced from IRS public filings.</p>
+      <p class="text-xs text-gray-400">Not affiliated with the IRS. For informational purposes only.</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+  (function() {
+    var s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js";
+    s.onload = function() {
+      document.querySelectorAll("canvas[data-years]").forEach(function(c) {
+        var years = c.dataset.years.split(",").map(Number);
+        var values = c.dataset.values.split(",").map(Number);
+        if (!years.length) return;
+        new Chart(c, {
+          type: "line",
+          data: {
+            labels: years,
+            datasets: [{
+              label: c.dataset.label,
+              data: values,
+              borderColor: c.dataset.color,
+              backgroundColor: c.dataset.color + "18",
+              fill: true,
+              tension: 0.4,
+              pointRadius: 3,
+              pointHoverRadius: 5,
+              borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { var v = ctx.raw; if (Math.abs(v) >= 1e9) return "$" + (v/1e9).toFixed(2) + "B"; if (Math.abs(v) >= 1e6) return "$" + (v/1e6).toFixed(2) + "M"; return "$" + v.toLocaleString(); } } } },
+            scales: {
+              x: { display: false },
+              y: {
+                grid: { color: "#f3f4f6", drawBorder: false },
+                ticks: {
+                  color: "#9ca3af",
+                  font: { size: 11, family: "'Inter', sans-serif" },
+                  maxTicksLimit: 4,
+                  callback: function(v) {
+                    if (Math.abs(v) >= 1e9) return "$" + (v / 1e9).toFixed(1) + "B";
+                    return "$" + (v / 1e6).toFixed(0) + "M";
+                  }
+                }
+              }
+            }
+          }
+        });
+      });
+    };
+    document.head.appendChild(s);
+  })();
+</script>
+</body>
+</html>

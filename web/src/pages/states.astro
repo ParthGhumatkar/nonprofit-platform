@@ -1,0 +1,24 @@
+﻿--- 
+import BaseLayout from '../layouts/BaseLayout.astro'; 
+import { getDistinctStates } from '../lib/db'; 
+ 
+const states = await getDistinctStates(); 
+--- 
+ 
+<BaseLayout 
+  title="Nonprofits by State - Philanthropy.org" 
+  description="Browse nonprofit organizations by state. View IRS Form 990 data for organizations in each U.S. state." 
+> 
+  <h1 class="text-3xl font-bold mb-6">Nonprofits by State</h1> 
+ 
+  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3"> 
+    {states.map(s => ( 
+      <a 
+        href={`/state/${s.toLowerCase()}`} 
+        class="border border-gray-200 rounded-lg p-4 text-center hover:border-blue-300 hover:text-blue-600 transition-colors font-medium" 
+      > 
+        {s} 
+      </a> 
+    ))} 
+  </div> 
+</BaseLayout>

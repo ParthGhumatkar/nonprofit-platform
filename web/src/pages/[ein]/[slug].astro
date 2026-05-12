@@ -1,0 +1,218 @@
+--- 
+import BaseLayout from '../../layouts/BaseLayout.astro'; 
+import { getOrganization, getFilings } from '../../lib/db'; 
+import { formatEin, slugify, generateTitle, generateMetaDescription, generateOrgSchema, getSubsectionLabel } from '../../lib/seo'; 
+import FinancialChart from '../../components/FinancialChart.astro'; 
+import MissionSection from '../../components/MissionSection.astro'; 
+import FilingCard from '../../components/FilingCard.astro'; 
+import GrantsTable from '../../components/GrantsTable.astro'; 
+import CompensationTable from '../../components/CompensationTable.astro'; 
+ 
+export async function getStaticPaths() { 
+  const { getAllOrganizations } = await import('../../lib/db'); 
+  const orgs = await getAllOrganizations(); 
+  return orgs.map(org => ({ 
+    params: { ein: org.ein, slug: slugify(org.canonical_name) }, 
+  })); 
+} 
+ 
+const { ein } = Astro.params; 
+const org = await getOrganization(ein); 
+if (!org) return Astro.redirect('/404'); 
+ 
+const filings = await getFilings(ein); 
+const latestFiling = filings[0]; 
+const title = generateTitle(org.canonical_name, org.ein); 
+const description = generateMetaDescription(org.canonical_name, org.ein, org.city, org.state, org.tax_year_latest);
+const schema = generateOrgSchema(org.canonical_name, org.ein, org.city, org.state, org.street, org.zip, org.year_formed);
+
+const PHILANTHROPY_BASE = 'https://philanthropy.org';
+const PLANNED_GIVING_URL = 'https://plannedgiving.com'; 
+--- 
+ 
+<BaseLayout title={title} description={description} schema={schema}>
+
+  {/* Breadcrumbs */}
+  <nav class="text-xs font-medium text-gray-400 mb-8 flex items-center gap-1.5">
+    <a href="/" class="hover:text-gray-700 transition-colors">Nonprofit Explorer</a>
+    <span>/</span>
+    {org.state && (
+      <>
+        <a href={`/state/${org.state.toLowerCase()}`} class="hover:text-gray-700 transition-colors">{org.state}</a>
+        <span>/</span>
+      </>
+    )}
+    <span class="text-gray-500 truncate max-w-xs">{org.canonical_name}</span>
+  </nav>
+
+  {/* Hero */}
+  <div class="pb-10 mb-10 border-b border-gray-100">
+    <div class="flex flex-wrap items-start gap-3 mb-3">
+      {latestFiling?.form_type && (
+        <span class="inline-flex items-center text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full">{latestFiling.form_type}</span>
+      )}
+      {org.subsection && (
+        <span class="inline-flex items-center text-xs font-medium bg-gray-100 text-gray-600 px-2.5 py-0.5 rounded-full">
+          {getSubsectionLabel(org.subsection)}
+        </span>
+      )}
+      {org.ntee_category && (
+        <span class="inline-flex items-center text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-0.5 rounded-full">{org.ntee_category}</span>
+      )}
+    </div>
+    <h1 class="text-4xl font-bold tracking-tight text-gray-900 mb-4">{org.canonical_name}</h1>
+    <div class="flex flex-wrap gap-5 text-sm text-gray-500">
+      <span class="flex items-center gap-1.5">
+        <span class="text-gray-400 text-xs font-medium uppercase tracking-wide">EIN</span>
+        <span class="font-mono text-gray-700 text-sm num">{formatEin(org.ein)}</span>
+      </span>
+      {org.city && org.state && (
+        <span class="flex items-center gap-1.5">
+          <span class="text-gray-400 text-xs font-medium uppercase tracking-wide">Location</span>
+          <span class="text-gray-700">{org.city}, {org.state}</span>
+        </span>
+      )}
+      {org.ruling_date && (
+        <span class="flex items-center gap-1.5">
+          <span class="text-gray-400 text-xs font-medium uppercase tracking-wide">Tax-exempt since</span>
+          <span class="text-gray-700">{new Date(org.ruling_date).getFullYear()}</span>
+        </span>
+      )}
+    </div>
+  </div>
+
+  {/* Main two-column layout */}
+  <div class="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-12 xl:gap-16 items-start">
+    <div class="space-y-16 min-w-0 overflow-x-hidden">
+      {latestFiling?.parsed_data?.mission && <MissionSection mission={latestFiling.parsed_data.mission} />}
+
+      {latestFiling?.parsed_data?.daf_activity && (
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+          <div class="flex items-start gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <p class="text-amber-800 text-sm font-medium">This organization reported donor-advised fund activity in its most recent filing.</p>
+          </div>
+        </div>
+      )}
+
+      <section>
+        <h2 class="text-2xl font-semibold tracking-tight text-gray-900 mb-6">Financial Overview</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <FinancialChart filings={filings} field="total_revenue" label="Total Revenue" color="#2563eb" />
+          <FinancialChart filings={filings} field="total_expenses" label="Total Expenses" color="#dc2626" />
+          <FinancialChart filings={filings} field="total_assets" label="Total Assets" color="#16a34a" />
+          <FinancialChart filings={filings} field="total_liabilities" label="Total Liabilities" color="#9333ea" />
+        </div>
+      </section>
+
+      {latestFiling?.parsed_data?.program_accomplishments && (
+        <section>
+          <h2 class="text-2xl font-semibold tracking-tight text-gray-900 mb-6">Program Areas</h2>
+          <div class="bg-white rounded-2xl border border-gray-100 p-6">
+            <div class="prose prose-gray max-w-none text-gray-700 leading-relaxed space-y-4">
+              {latestFiling.parsed_data.program_accomplishments.split(/\n\s*\n/).filter((p: string) => p.trim()).map((p: string) => (
+                <p>{p.trim()}</p>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {latestFiling?.id && (
+        <div class="border-t border-gray-100 pt-4">
+          <GrantsTable filingId={latestFiling.id} />
+        </div>
+      )}
+
+      {latestFiling?.id && (
+        <div class="border-t border-gray-100 pt-4">
+          <CompensationTable filingId={latestFiling.id} />
+        </div>
+      )}
+
+      <div class="border-t border-gray-100 pt-4">
+        <section>
+          <h2 class="text-2xl font-semibold tracking-tight text-gray-900 mb-6">Filing History</h2>
+          <div class="space-y-3">
+            {filings.map(f => <FilingCard filing={f} ein={org.ein} />)}
+          </div>
+        </section>
+      </div>
+    </div>
+
+    {/* Sidebar */}
+    <aside class="space-y-5 lg:sticky lg:top-20">
+      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Organization Details</h3>
+        <dl class="text-sm space-y-3">
+          {org.ein && (
+            <div>
+              <dt class="text-xs text-gray-400 mb-0.5">EIN</dt>
+              <dd class="text-gray-700 font-mono text-sm">{formatEin(org.ein)}</dd>
+            </div>
+          )}
+          {(org.street || org.city || org.state) && (
+            <div>
+              <dt class="text-xs text-gray-400 mb-0.5">Address</dt>
+              <dd class="text-gray-700 leading-snug">{[org.street, org.city, [org.state, org.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')}</dd>
+            </div>
+          )}
+          {org.year_formed && (
+            <div>
+              <dt class="text-xs text-gray-400 mb-0.5">Year Formed</dt>
+              <dd class="text-gray-700">{org.year_formed}</dd>
+            </div>
+          )}
+          {org.ruling_date && (
+            <div>
+              <dt class="text-xs text-gray-400 mb-0.5">Ruling Date</dt>
+              <dd class="text-gray-700">{new Date(org.ruling_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</dd>
+            </div>
+          )}
+          {latestFiling?.tax_year && (
+            <div>
+              <dt class="text-xs text-gray-400 mb-0.5">Fiscal Year End</dt>
+              <dd class="text-gray-700">{latestFiling.tax_year}</dd>
+            </div>
+          )}
+          {latestFiling?.form_type && (
+            <div>
+              <dt class="text-xs text-gray-400 mb-0.5">Tax Return Type</dt>
+              <dd class="text-gray-700">{latestFiling.form_type}</dd>
+            </div>
+          )}
+          {org.pub78_status && (
+            <div>
+              <dt class="text-xs text-gray-400 mb-0.5">Deductibility Status</dt>
+              <dd class="text-gray-700">{org.pub78_status === 'PC' ? 'Public Charity — Deductible' : org.pub78_status === 'PF' ? 'Private Foundation — Deductible' : org.pub78_status}</dd>
+            </div>
+          )}
+          {org.ntee_code && (
+            <div>
+              <dt class="text-xs text-gray-400 mb-0.5">NTEE Classification</dt>
+              <dd class="text-gray-700">{org.ntee_code}{org.ntee_category ? ` — ${org.ntee_category}` : ''}</dd>
+            </div>
+          )}
+        </dl>
+      </div>
+
+      <div class="bg-blue-50 rounded-2xl p-6 border border-blue-100">
+        <h3 class="text-xs font-semibold text-blue-400 uppercase tracking-widest mb-4">Philanthropy.org Network</h3>
+        <ul class="text-sm space-y-2.5">
+          <li><a href={`${PHILANTHROPY_BASE}/foundations`} class="text-blue-700 hover:text-blue-900 font-medium transition-colors">Foundations Directory →</a></li>
+          <li><a href={`${PHILANTHROPY_BASE}/jobs`} class="text-blue-700 hover:text-blue-900 font-medium transition-colors">Nonprofit Job Board →</a></li>
+          <li><a href={`${PHILANTHROPY_BASE}/magazine`} class="text-blue-700 hover:text-blue-900 font-medium transition-colors">GIVING Magazine →</a></li>
+          <li><a href={PLANNED_GIVING_URL} class="text-blue-700 hover:text-blue-900 font-medium transition-colors">PlannedGiving.com →</a></li>
+        </ul>
+      </div>
+
+      <div class="text-xs text-gray-400 mt-2 pt-4 border-t border-gray-100">
+        Data last updated: {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+      </div>
+    </aside>
+  </div>
+</BaseLayout>
+
+

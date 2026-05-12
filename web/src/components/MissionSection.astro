@@ -1,0 +1,15 @@
+﻿---
+interface Props { mission: string; }
+const { mission } = Astro.props;
+const paragraphs = mission.split(/\n\s*\n/).filter(p => p.trim());
+---
+<section>
+  <h2 class="text-2xl font-semibold tracking-tight text-gray-900 mb-6">Mission Statement</h2>
+  <div class="relative pl-6 pr-6 py-5 bg-blue-50/60 border border-blue-100 rounded-r-2xl rounded-bl-none" style="border-left: 4px solid #3b82f6; border-radius: 0 1rem 1rem 0;">
+    {paragraphs.length > 1 ? (
+      paragraphs.map(p => <p class="mb-3 last:mb-0 text-gray-700 leading-relaxed">{p.trim()}</p>)
+    ) : (
+      <p class="text-gray-700 leading-relaxed">{mission}</p>
+    )}
+  </div>
+</section>

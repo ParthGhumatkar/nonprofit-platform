@@ -1,0 +1,76 @@
+﻿---
+import BaseLayout from '../../layouts/BaseLayout.astro'; 
+import { getOrganizationsByNtee } from '../../lib/db'; 
+import { formatEin, slugify } from '../../lib/seo'; 
+import { getNteeBySlug, getAllNteeCategories } from '../../lib/ntee'; 
+ 
+export async function getStaticPaths() { 
+  const cats = getAllNteeCategories(); 
+  return cats.map(c => ({ params: { ntee: c.slug } })); 
+} 
+ 
+const { ntee } = Astro.params; 
+const nteeInfo = getNteeBySlug(ntee); 
+if (!nteeInfo) return Astro.redirect('/404'); 
+ 
+const orgs = await getOrganizationsByNtee(nteeInfo.code); 
+ 
+const page = parseInt(Astro.url.searchParams.get('page') || '1'); 
+const perPage = 50; 
+const totalPages = Math.ceil(orgs.length / perPage); 
+const start = (page - 1) * perPage; 
+const paged = orgs.slice(start, start + perPage); 
+--- 
+ 
+<BaseLayout 
+  title={`${nteeInfo.category} Nonprofits - Philanthropy.org`} 
+  description={`Browse ${orgs.length} nonprofit organizations in the ${nteeInfo.category} category. View IRS Form 990 data.`} 
+> 
+  <nav class="text-sm text-gray-500 mb-4"> 
+    <a href="/" class="hover:text-blue-600">Nonprofit Explorer</a> 
+    <span class="mx-1">/</span> 
+    <span class="text-gray-900">{nteeInfo.category}</span> 
+  </nav> 
+ 
+  <h1 class="text-3xl font-bold mb-2">{nteeInfo.category} Nonprofits</h1> 
+  <p class="text-gray-500 mb-6">{orgs.length} organizations</p> 
+ 
+  <div class="space-y-3"> 
+    {paged.map(org => ( 
+      <a 
+        href={`/${org.ein}/${slugify(org.canonical_name)}`} 
+        class="block border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors" 
+      > 
+        <div class="font-semibold text-blue-700">{org.canonical_name}</div> 
+        <div class="text-sm text-gray-500 mt-1"> 
+          EIN: {formatEin(org.ein)} 
+          {org.city && ` | ${org.city}, ${org.state}`} 
+        </div> 
+      </a> 
+    ))} 
+  </div> 
+ 
+  {totalPages > 1 && ( 
+    <div class="flex justify-center gap-2 mt-8"> 
+      {page > 1 && ( 
+        <a 
+          href={`/category/${ntee}?page=${page - 1}`} 
+          class="border border-gray-300 rounded px-4 py-2 hover:border-blue-300 transition-colors" 
+        > 
+          Previous 
+        </a> 
+      )} 
+      <span class="px-4 py-2 text-gray-500"> 
+        Page {page} of {totalPages} 
+      </span> 
+      {page < totalPages && ( 
+        <a 
+          href={`/category/${ntee}?page=${page + 1}`} 
+          class="border border-gray-300 rounded px-4 py-2 hover:border-blue-300 transition-colors" 
+        > 
+          Next 
+        </a> 
+      )} 
+    </div> 
+  )} 
+</BaseLayout>

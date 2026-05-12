@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+web/node_modules/
+
+# Build output
+web/dist/
+web/.astro/
+
+# Secrets
+web/.env
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+pipeline/.venv/
+
+# Data blobs (large files — never commit)
+data/raw_xml/
+data/zips/
+data/temp_extract/
+data/bmf/
+data/indexes/
+
+# Logs
+sync.log
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
