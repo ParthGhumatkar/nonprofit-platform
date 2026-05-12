@@ -1,4 +1,4 @@
-﻿"""
+"""
 BMF (Business Master File) CSV loader.
 Downloads NCCS BMF data as a direct CSV and upserts into the database.
 Maps NTEE codes to human-readable categories.
@@ -9,7 +9,7 @@ import csv
 import logging
 import urllib.request
 
-from db import upsert_organization
+from db import upsert_organizations_batch
 
 logger = logging.getLogger(__name__)
 
@@ -70,15 +70,17 @@ def normalize_subsection(val):
     return s
 
 
-def load_bmf_csv(filepath):
+def load_bmf_csv(filepath, batch_size=1000):
     """
-    Load NCCS BMF data from a local CSV file.
+    Load NCCS BMF data from a local CSV file using batch inserts.
     Expected columns: EIN, NAME, STREET, CITY, STATE, ZIP, NTEE_CD, SUBSECTION,
     RULING_DATE, FOUNDATION, ORGANIZATION, DEDUCTIBILITY, ASSET_CD, INCOME_CD,
     FILING_REQ_CD, TAX_PERIOD
     """
     count = 0
     skipped = 0
+    error_count = 0
+    buffer = []
 
     with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
         reader = csv.DictReader(f)
@@ -110,7 +112,7 @@ def load_bmf_csv(filepath):
             # Convert YYYYMM to YYYY-MM-DD format for PostgreSQL
             if ruling_date and len(ruling_date) == 6:
                 ruling_date = ruling_date[:4] + '-' + ruling_date[4:6] + '-01'
-            
+
             if ruling_date and len(ruling_date) >= 4:
                 try:
                     year_formed = int(ruling_date[:4])
@@ -119,29 +121,48 @@ def load_bmf_csv(filepath):
 
             ntee_category = get_ntee_category(ntee_code)
 
-            try:
-                upsert_organization(
-                    ein=ein, name=name,
-                    city=city or None,
-                    state=state or None,
-                    zip_code=zip_code or None,
-                    street=street or None,
-                    ntee_code=ntee_code or None,
-                    ntee_category=ntee_category,
-                    subsection=normalize_subsection(subsection),
-                    year_formed=year_formed,
-                    ruling_date=ruling_date if ruling_date else None,
-                    pub78_status=deductibility if deductibility else None,
-                )
-                count += 1
-            except Exception as e:
-                logger.error(f"Error upserting {ein}: {e}")
-                skipped += 1
+            # Build row dict for batch insert
+            buffer.append({
+                'ein': ein,
+                'name': name,
+                'city': city or None,
+                'state': state or None,
+                'zip_code': zip_code or None,
+                'street': street or None,
+                'ntee_code': ntee_code or None,
+                'ntee_category': ntee_category,
+                'subsection': normalize_subsection(subsection),
+                'year_formed': year_formed,
+                'ruling_date': ruling_date if ruling_date else None,
+                'pub78_status': deductibility if deductibility else None,
+                'tax_year': None,
+                'form_type': None,
+            })
 
-            if count % 10000 == 0:
-                logger.info(f"BMF progress: {count} loaded, {skipped} skipped")
+            count += 1
 
-    logger.info(f"BMF load complete: {count} loaded, {skipped} skipped")
+            # Flush buffer when full
+            if len(buffer) >= batch_size:
+                try:
+                    upsert_organizations_batch(buffer)
+                except Exception as e:
+                    logger.error(f"Error during batch upsert: {e}")
+                    error_count += len(buffer)
+                buffer = []
+
+                # Progress logging every 50,000 rows
+                if count % 50000 == 0:
+                    logger.info(f"BMF progress: {count} loaded, {skipped} skipped, {error_count} errors")
+
+    # Flush remaining rows
+    if buffer:
+        try:
+            upsert_organizations_batch(buffer)
+        except Exception as e:
+            logger.error(f"Error during final batch upsert: {e}")
+            error_count += len(buffer)
+
+    logger.info(f"BMF load complete: {count} loaded, {skipped} skipped, {error_count} errors")
     return count, skipped
 
 
@@ -184,4 +205,3 @@ if __name__ == '__main__':
         logger.info(f"BMF file not found: {filepath}")
         filepath = download_bmf(os.path.dirname(filepath))
         load_bmf_csv(filepath)
-

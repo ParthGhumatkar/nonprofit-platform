@@ -1,4 +1,4 @@
-﻿"""
+"""
 IRS 990 XML parser powered by irsx library.
 Parses local XML files and inserts structured data into PostgreSQL.
 """
@@ -14,6 +14,23 @@ from db import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def as_list(x):
+    """Normalise an irsx result to a list.
+
+    irsx returns a single dict when a repeating group has one entry and a
+    list of dicts when it has multiple. Iterating a dict yields its keys
+    (strings), which then break `.get()` calls in the loop body. Wrap every
+    repeating-group iteration with this helper.
+    """
+    if x is None:
+        return []
+    if isinstance(x, list):
+        return x
+    if isinstance(x, dict):
+        return [x]
+    return []
 
 
 def deep_get(d, key):
@@ -147,7 +164,7 @@ def parse_990(f, schedules):
         mission_parts = []
         prog_parts = []
         if sched_o:
-            for entry in sched_o.get('SupplementalInformationDetail', []):
+            for entry in as_list(sched_o.get('SupplementalInformationDetail')):
                 ref = (entry.get('FormAndLineReferenceDesc') or '').lower()
                 text = entry.get('ExplanationTxt') or ''
                 if not text:
@@ -161,7 +178,7 @@ def parse_990(f, schedules):
     else:
         mission_text = mission_raw if mission_raw else None
         prog_parts = []
-        for grp in sked.get('ProgramServiceAccomplishmentGrp', []):
+        for grp in as_list(sked.get('ProgramServiceAccomplishmentGrp')):
             desc = safe_str(grp.get('DescriptionProgramServiceAccomTxt'))
             if desc:
                 prog_parts.append(desc)
@@ -194,7 +211,7 @@ def parse_990(f, schedules):
     sched_i = f.get_schedule('IRS990ScheduleI') if 'IRS990ScheduleI' in schedules else None
     grant_rows = []
     if sched_i:
-        for r in sched_i.get('RecipientTable', []):
+        for r in as_list(sched_i.get('RecipientTable')):
             name = safe_str(r.get('RecipientBusinessName'))
             amt = safe_str(r.get('CashGrantAmt'))
             if name or amt:
@@ -212,7 +229,7 @@ def parse_990(f, schedules):
     comp_rows = []
     sched_j = f.get_schedule('IRS990ScheduleJ') if 'IRS990ScheduleJ' in schedules else None
     if sched_j:
-        for p in sched_j.get('RltdOrgOfficerTrstKeyEmplGrp', []):
+        for p in as_list(sched_j.get('RltdOrgOfficerTrstKeyEmplGrp')):
             name = extract_name(p)
             if name:
                 base = safe_str(p.get('BaseCompensationFilingOrgAmt'))
@@ -230,7 +247,7 @@ def parse_990(f, schedules):
                     'total': str(int(total)) if total else None,
                 })
     if not comp_rows:
-        for p in sked.get('Form990PartVIISectionAGrp', []):
+        for p in as_list(sked.get('Form990PartVIISectionAGrp')):
             name = extract_name(p)
             if name:
                 base = safe_str(p.get('ReportableCompFromOrgAmt'))
@@ -313,7 +330,7 @@ def parse_990pf(f, schedules):
 
     # Grants
     grant_rows = []
-    for g in deep_get(sked, 'GrantOrContributionPdDurYrGrp') or []:
+    for g in as_list(deep_get(sked, 'GrantOrContributionPdDurYrGrp')):
         name = safe_str(g.get('RecipientBusinessName'))
         amt = safe_str(g.get('Amt'))
         if amt:
@@ -329,7 +346,7 @@ def parse_990pf(f, schedules):
 
     # Compensation
     comp_rows = []
-    for p in deep_get(sked, 'OfficerDirTrstKeyEmplGrp') or []:
+    for p in as_list(deep_get(sked, 'OfficerDirTrstKeyEmplGrp')):
         name = extract_name(p)
         if name:
             base = safe_str(p.get('CompensationAmt'))

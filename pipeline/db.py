@@ -10,7 +10,9 @@ from contextlib import contextmanager
 
 import psycopg2
 import psycopg2.extras
+from psycopg2 import pool as pg_pool
 from dotenv import load_dotenv
+import atexit
 
 load_dotenv()
 
@@ -20,11 +22,37 @@ if not DATABASE_URL:
 
 logger = logging.getLogger(__name__)
 
+# Connection pool (per-process, since each worker runs in its own process)
+_pool = None
+
+
+def _get_pool():
+    """Get or create the connection pool for this process."""
+    global _pool
+    if _pool is None:
+        _pool = pg_pool.SimpleConnectionPool(
+            minconn=1,
+            maxconn=8,
+            dsn=DATABASE_URL
+        )
+    return _pool
+
+
+def _close_pool():
+    """Close all connections in the pool at process exit."""
+    global _pool
+    if _pool:
+        _pool.closeall()
+
+
+atexit.register(_close_pool)
+
 
 @contextmanager
 def get_conn():
-    """Yield a database connection with autocommit off."""
-    conn = psycopg2.connect(DATABASE_URL)
+    """Yield a database connection from the pool."""
+    p = _get_pool()
+    conn = p.getconn()
     try:
         yield conn
         conn.commit()
@@ -32,7 +60,7 @@ def get_conn():
         conn.rollback()
         raise
     finally:
-        conn.close()
+        p.putconn(conn)
 
 
 def upsert_organization(ein, name, city=None, state=None, zip_code=None,
@@ -67,6 +95,65 @@ def upsert_organization(ein, name, city=None, state=None, zip_code=None,
               ntee_code, ntee_category, subsection,
               year_formed, ruling_date, pub78_status,
               tax_year, form_type))
+
+
+def upsert_organizations_batch(rows):
+    """Batch insert or update organization records.
+
+    Args:
+        rows: List of dicts with keys: ein, name, city, state, zip_code, street,
+              ntee_code, ntee_category, subsection, year_formed, ruling_date,
+              pub78_status, tax_year, form_type
+
+    Uses execute_values for efficient bulk upsert.
+    """
+    if not rows:
+        return 0
+    with get_conn() as conn:
+        cur = conn.cursor()
+        # Build tuple list in column order matching the INSERT
+        values = [
+            (
+                r['ein'],
+                r['name'],
+                r.get('city'),
+                r.get('state'),
+                r.get('zip_code'),
+                r.get('street'),
+                r.get('ntee_code'),
+                r.get('ntee_category'),
+                r.get('subsection'),
+                r.get('year_formed'),
+                r.get('ruling_date'),
+                r.get('pub78_status'),
+                r.get('tax_year'),
+                r.get('form_type')
+            )
+            for r in rows
+        ]
+        psycopg2.extras.execute_values(cur, """
+            INSERT INTO organizations (ein, canonical_name, city, state, zip, street,
+                                       ntee_code, ntee_category, subsection,
+                                       year_formed, ruling_date, pub78_status,
+                                       tax_year_latest, form_type_latest)
+            VALUES %s
+            ON CONFLICT (ein) DO UPDATE SET
+                canonical_name  = COALESCE(EXCLUDED.canonical_name, organizations.canonical_name),
+                city            = COALESCE(EXCLUDED.city, organizations.city),
+                state           = COALESCE(EXCLUDED.state, organizations.state),
+                zip             = COALESCE(EXCLUDED.zip, organizations.zip),
+                street          = COALESCE(EXCLUDED.street, organizations.street),
+                ntee_code       = COALESCE(EXCLUDED.ntee_code, organizations.ntee_code),
+                ntee_category   = COALESCE(EXCLUDED.ntee_category, organizations.ntee_category),
+                subsection      = COALESCE(EXCLUDED.subsection, organizations.subsection),
+                year_formed     = COALESCE(EXCLUDED.year_formed, organizations.year_formed),
+                ruling_date     = COALESCE(EXCLUDED.ruling_date, organizations.ruling_date),
+                pub78_status    = COALESCE(EXCLUDED.pub78_status, organizations.pub78_status),
+                tax_year_latest = GREATEST(COALESCE(organizations.tax_year_latest, 0),
+                                           COALESCE(EXCLUDED.tax_year_latest, 0)),
+                form_type_latest = COALESCE(EXCLUDED.form_type_latest, organizations.form_type_latest)
+        """, values)
+        return cur.rowcount
 
 
 def insert_filing(ein, object_id, tax_year, form_type, period_begin=None,
@@ -289,38 +376,32 @@ def search_organizations(query, limit=50):
 
 def backfill_org_metadata():
     """Derive missing org metadata from the most recent filing for each org.
-    Used when BMF data is unavailable to fill in subsection and other fields."""
+    Used when BMF data is unavailable to fill in subsection and other fields.
+    
+    This uses a single SQL UPDATE statement instead of N+1 queries.
+    """
     with get_conn() as conn:
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        # Find orgs with missing subsection that have filings
+        cur = conn.cursor()
+        # Single UPDATE: derive subsection from latest filing
+        # Rules:
+        #   - 990PF filings are always 501(c)(3)
+        #   - Other filings with "private foundation" in mission are 501(c)(3)
         cur.execute("""
-            SELECT o.ein, f.form_type, f.parsed_data
-            FROM organizations o
-            JOIN LATERAL (
-                SELECT * FROM filings
-                WHERE ein = o.ein
-                ORDER BY tax_year DESC
-                LIMIT 1
-            ) f ON true
-            WHERE o.subsection IS NULL
+            UPDATE organizations o
+            SET subsection = '501(c)(3)'
+            FROM (
+                SELECT DISTINCT ON (ein) ein, form_type, parsed_data
+                FROM filings
+                ORDER BY ein, tax_year DESC NULLS LAST
+            ) f
+            WHERE o.ein = f.ein
+              AND o.subsection IS NULL
+              AND (
+                  f.form_type = '990PF'
+                  OR f.parsed_data->>'mission' ILIKE '%private foundation%'
+              )
         """)
-        rows = cur.fetchall()
-        updated = 0
-        for row in rows:
-            ein = row['ein']
-            form_type = row['form_type']
-            parsed = row['parsed_data'] or {}
-            subsection = None
-            if form_type == '990PF':
-                subsection = '501(c)(3)'
-            elif parsed.get('mission') and 'private foundation' in str(parsed.get('mission', '')).lower():
-                subsection = '501(c)(3)'
-            if subsection:
-                cur.execute(
-                    "UPDATE organizations SET subsection = %s WHERE ein = %s",
-                    (subsection, ein)
-                )
-                updated += 1
+        updated = cur.rowcount
         conn.commit()
         logger.info(f"Backfilled subsection for {updated} organizations")
         return updated
