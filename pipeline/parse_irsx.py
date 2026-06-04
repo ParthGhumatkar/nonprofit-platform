@@ -4,6 +4,7 @@ Parses local XML files and inserts structured data into PostgreSQL.
 """
 
 import os
+import re
 import logging
 from irsx.filing import Filing
 
@@ -106,6 +107,42 @@ def extract_name(person):
     return name
 
 
+def looks_like_program_text(text: str) -> bool:
+    """Heuristic: does this string look like a program-service description?
+
+    Schedule O carries many kinds of supplemental information — governance
+    disclosures, related-party transactions, financial reconciliation
+    tables — in addition to the Part-III program-service narrative. When
+    a Schedule O entry has no clear FormAndLineReferenceDesc tag, we use
+    this filter to drop the obvious non-program text.
+
+    Rules:
+    - Reject anything under 100 characters (short notes, not narrative)
+    - Reject if more than 40% of characters are non-alpha and non-space
+      (typical of financial reconciliation tables full of numbers and
+      punctuation, e.g. "Total Revenue: 12345; Other: -678;")
+    """
+    if len(text) < 100:
+        return False
+    non_alpha = sum(1 for c in text if not c.isalpha() and not c.isspace())
+    if non_alpha / max(len(text), 1) > 0.40:
+        return False
+    return True
+
+
+# IRS schema field names for program-service accomplishments have drifted
+# across schema years. Try each variant in order.
+PROG_GRP_KEYS = (
+    'ProgramServiceAccomplishmentGrp',
+    'ProgramSrvcAccomplishmentGrp',
+)
+PROG_DESC_KEYS = (
+    'DescriptionProgramServiceAccomTxt',
+    'Desc',
+    'ProgramServiceAccomplishmentTxt',
+)
+
+
 def parse_990(f, schedules):
     """Parse a standard IRS Form 990."""
     sked = f.get_schedule('IRS990')
@@ -154,15 +191,19 @@ def parse_990(f, schedules):
     except (ValueError, TypeError):
         parsed['net_income'] = None
 
-    # Mission
+    # Mission + programs.
+    #
+    # Both paths now run unconditionally. Previously the parser only looked
+    # at Schedule O when mission_raw literally said "SCHEDULE O", which
+    # silently dropped Schedule-O program narrative for filers like Harvard
+    # whose MissionDesc is a one-line statement with no cross-reference.
     mission_raw = safe_str(sked.get('MissionDesc')) or ''
-    mission_text = None
-    programs_text = None
+    mission_parts = []
+    prog_parts = []
 
-    if 'SCHEDULE O' in mission_raw.upper():
-        sched_o = f.get_schedule('IRS990ScheduleO') if 'IRS990ScheduleO' in schedules else None
-        mission_parts = []
-        prog_parts = []
+    # Path A — Schedule O (always, when present)
+    if 'IRS990ScheduleO' in schedules:
+        sched_o = f.get_schedule('IRS990ScheduleO')
         if sched_o:
             for entry in as_list(sched_o.get('SupplementalInformationDetail')):
                 ref = (entry.get('FormAndLineReferenceDesc') or '').lower()
@@ -171,18 +212,61 @@ def parse_990(f, schedules):
                     continue
                 if 'mission' in ref or 'part i' in ref or 'line 1' in ref:
                     mission_parts.append(text)
-                elif 'part iii' in ref or 'program service' in ref or 'program accomplishment' in ref:
+                elif any(kw in ref for kw in (
+                    'part iii', 'program', 'programs', 'accomplishment',
+                    'service', 'activity', 'activities',
+                )):
                     prog_parts.append(text)
-        mission_text = '\n\n'.join(mission_parts) if mission_parts else None
-        programs_text = '\n\n'.join(prog_parts) if prog_parts else None
+                else:
+                    # No reference text matched any known section. Only
+                    # include the text if it actually looks like a program
+                    # description — bare governance disclosures and
+                    # financial reconciliation tables are typically short
+                    # or made up almost entirely of digits and punctuation,
+                    # so reject those here. The post-loop quality filter
+                    # below catches anything that slips through.
+                    if (
+                        len(text) > 200
+                        and not re.match(r'^[\s\-\d.,$()\n]+$', text)
+                    ):
+                        prog_parts.append(text)
+
+    # Path B — direct ProgramServiceAccomplishmentGrp on the main 990 schedule
+    # (always, regardless of whether Schedule O contributed anything). Dedupe
+    # by exact content so a filer that puts the same text in both places does
+    # not get a doubled entry.
+    seen = set(prog_parts)
+    for grp_key in PROG_GRP_KEYS:
+        grps = as_list(sked.get(grp_key))
+        if grps:
+            for grp in grps:
+                for desc_key in PROG_DESC_KEYS:
+                    desc = safe_str(grp.get(desc_key))
+                    if desc and desc not in seen:
+                        prog_parts.append(desc)
+                        seen.add(desc)
+                        break
+            break
+
+    # Mission resolution:
+    #   - Prefer MissionDesc when it is a real mission statement (anything
+    #     that is not just a reference to Schedule O).
+    #   - Otherwise fall back to the Schedule O mission entries.
+    #   - Final fallback: whatever mission_raw is, even if it just says
+    #     "see Schedule O" — better than nothing.
+    if mission_raw and 'SCHEDULE O' not in mission_raw.upper():
+        mission_text = mission_raw
+    elif mission_parts:
+        mission_text = '\n\n'.join(mission_parts)
     else:
         mission_text = mission_raw if mission_raw else None
-        prog_parts = []
-        for grp in as_list(sked.get('ProgramServiceAccomplishmentGrp')):
-            desc = safe_str(grp.get('DescriptionProgramServiceAccomTxt'))
-            if desc:
-                prog_parts.append(desc)
-        programs_text = '\n\n'.join(prog_parts) if prog_parts else None
+
+    # Final quality filter — even tagged Path-A entries and direct Path-B
+    # descriptions can slip through with non-program content. Drop
+    # anything that doesn't look like an actual program description.
+    prog_parts = [p for p in prog_parts if looks_like_program_text(p)]
+
+    programs_text = '\n\n'.join(prog_parts) if prog_parts else None
 
     parsed['mission'] = mission_text
     parsed['program_accomplishments'] = programs_text
@@ -370,6 +454,110 @@ def parse_990pf(f, schedules):
     }
 
 
+def parse_990ez(f, schedules):
+    """Parse IRS Form 990-EZ (short form)."""
+    sked = f.get_schedule('IRS990EZ')
+    header = f.get_schedule('ReturnHeader990x')
+    filer = header.get('Filer', {}) or {}
+    addr = filer.get('USAddress', {}) or {}
+
+    ein = f.get_ein()
+    org_name = safe_str(filer.get('BusinessName'))
+    tax_year = safe_str(header.get('TaxYr'))
+    period_end = safe_str(header.get('TaxPeriodEndDt'))
+    period_begin = safe_str(header.get('TaxPeriodBeginDt'))
+
+    # Upsert organization. derive_subsection() handles missing fields
+    # gracefully — 990EZ schedules may or may not carry 501(c)(3) indicators
+    # depending on schema year.
+    subsection = derive_subsection(sked) if sked else None
+    upsert_organization(
+        ein=ein, name=org_name,
+        city=safe_str(addr.get('CityNm')),
+        state=safe_str(addr.get('StateAbbreviationCd')),
+        zip_code=safe_str(addr.get('ZIPCd')),
+        street=safe_str(addr.get('AddressLine1Txt')),
+        subsection=subsection,
+        tax_year=int(tax_year) if tax_year else None,
+        form_type='990EZ',
+    )
+
+    rev = safe_str(sked.get('TotalRevenueAmt'))
+    exp = safe_str(sked.get('TotalExpensesAmt'))
+
+    # total_assets: try the simple field first, fall back to the grouped form
+    # that some schema years use (Form990TotalAssetsGrp/EOYAmt).
+    total_assets = safe_str(deep_get(sked, 'TotalAssetsAmt'))
+    if not total_assets:
+        grp = sked.get('Form990TotalAssetsGrp')
+        if grp:
+            total_assets = safe_str(deep_get(grp, 'EOYAmt'))
+
+    parsed = {
+        'total_revenue': rev,
+        'total_expenses': exp,
+        'total_assets': total_assets,
+        'total_liabilities': safe_str(sked.get('TotalLiabilitiesEOYAmt')),
+        'net_assets': safe_str(sked.get('NetAssetsOrFundBalancesEOYAmt')),
+        'contributions': safe_str(sked.get('ContributionsGiftsGrantsEtcAmt')),
+        'prog_revenue': safe_str(sked.get('ProgramServiceRevenueAmt')),
+        'invest_income': safe_str(sked.get('InvestmentIncomeAmt')),
+        'other_revenue': None,
+        'grants_paid': None,
+        'salaries': None,
+        'fundraising_fees': None,
+    }
+    try:
+        parsed['net_income'] = str(int(rev) - int(exp)) if rev and exp else None
+    except (ValueError, TypeError):
+        parsed['net_income'] = None
+
+    mission_text = safe_str(sked.get('PrimaryExemptPurposeTxt'))
+    parsed['mission'] = mission_text
+    parsed['program_accomplishments'] = None
+    parsed['daf_activity'] = False
+
+    received_date = safe_str(header.get('ReturnTs')) or safe_str(header.get('BuildTs'))
+    object_id = f.object_id
+    filing_id = insert_filing(
+        ein=ein, object_id=object_id, tax_year=int(tax_year) if tax_year else None,
+        form_type='990EZ', period_begin=period_begin, period_end=period_end,
+        received_date=received_date, raw_xml=f.raw_xml, parsed_data=parsed,
+    )
+
+    # 990EZ does not report individual grants — leave empty.
+    insert_grants(filing_id, [])
+
+    # Compensation — Part IV: OfficerDirectorTrusteeEmplGrp
+    comp_rows = []
+    for p in as_list(sked.get('OfficerDirectorTrusteeEmplGrp')):
+        name = extract_name(p)
+        if name:
+            base = (
+                safe_str(p.get('CompensationAmt'))
+                or safe_str(p.get('ReportableCompFromOrgAmt'))
+            )
+            total = _to_float(base) or 0
+            comp_rows.append({
+                'name': name,
+                'title': safe_str(p.get('TitleTxt')),
+                'base': base,
+                'bonus': None,
+                'other': None,
+                'total': str(int(total)) if total else None,
+            })
+    insert_compensation(filing_id, comp_rows)
+
+    if mission_text:
+        insert_mission(filing_id, mission_text)
+
+    return {
+        'ein': ein, 'org_name': org_name, 'tax_year': tax_year,
+        'form_type': '990EZ', 'grants': 0, 'comp': len(comp_rows),
+        'mission': bool(mission_text),
+    }
+
+
 def parse_file(filepath, min_file_size=20000):
     """Parse a single IRS XML file and store in database."""
     if os.path.getsize(filepath) < min_file_size:
@@ -394,11 +582,13 @@ def parse_file(filepath, min_file_size=20000):
 
     schedules = f.list_schedules()
 
-    if 'IRS990' not in schedules and 'IRS990PF' not in schedules:
+    if not any(s in schedules for s in ('IRS990', 'IRS990PF', 'IRS990EZ')):
         return {'skip': True, 'reason': 'Unsupported form type'}
 
     if 'IRS990PF' in schedules:
         return parse_990pf(f, schedules)
+    elif 'IRS990EZ' in schedules:
+        return parse_990ez(f, schedules)
     else:
         return parse_990(f, schedules)
 

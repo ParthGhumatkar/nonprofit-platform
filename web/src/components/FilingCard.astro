@@ -1,4 +1,4 @@
-﻿--- 
+--- 
 interface Props { 
   filing: any; 
   ein: string; 
@@ -8,7 +8,10 @@ const { filing, ein } = Astro.props;
 const d = filing.parsed_data || {}; 
  
 const IRS_DETAILS_URL = 'https://apps.irs.gov/app/eos/details';
-const IRS_PDF_URL = 'https://apps.irs.gov/pub/epostcard/cor'; 
+// ProPublica hosts a PDF rendering for every long-form 990 filing in the IRS
+// bulk e-file dataset. Their URL scheme is keyed by EIN + the raw IRS object
+// ID (without the "_public" suffix the bulk export appends).
+const PROPUBLICA_BASE = 'https://projects.propublica.org/nonprofits/organizations'; 
  
 const fmt = (v: any) => {
   if (v == null) return '-';
@@ -26,6 +29,12 @@ const pct = (part: any, total: any) => {
  
 const rev = parseInt(d.total_revenue) || 0; 
 const exp = parseInt(d.total_expenses) || 0; 
+
+const pdfFile = filing.form_type === '990PF'
+  ? 'IRS990PF.pdf'
+  : filing.form_type === '990EZ'
+  ? 'IRS990EZ.pdf'
+  : 'IRS990.pdf';
 --- 
  
 <div class="border border-gray-100 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow duration-200 bg-white" x-data="{ open: false }">
@@ -163,7 +172,7 @@ const exp = parseInt(d.total_expenses) || 0;
         View on IRS.gov ↗
       </a>
       <span class="text-gray-200">|</span>
-      <a href={`${IRS_PDF_URL}/${ein}_${filing.tax_year}_990_${filing.object_id}.pdf`} class="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors" target="_blank" rel="noopener noreferrer">
+      <a href={`${PROPUBLICA_BASE}/${ein}/${filing.object_id.replace('_public', '')}/${pdfFile}`} class="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors" target="_blank" rel="noopener noreferrer">
         PDF ↓
       </a>
       <span class="text-gray-200">|</span>
@@ -177,7 +186,7 @@ const exp = parseInt(d.total_expenses) || 0;
       View on IRS.gov ↗
     </a>
     <span class="text-gray-200">|</span>
-    <a href={`${IRS_PDF_URL}/${ein}_${filing.tax_year}_990_${filing.object_id}.pdf`} class="text-xs text-gray-400 hover:text-blue-600 transition-colors" target="_blank" rel="noopener noreferrer">
+    <a href={`${PROPUBLICA_BASE}/${ein}/${filing.object_id.replace('_public', '')}/${pdfFile}`} class="text-xs text-gray-400 hover:text-blue-600 transition-colors" target="_blank" rel="noopener noreferrer">
       PDF ↓
     </a>
   </div>

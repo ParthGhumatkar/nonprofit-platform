@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 RAW_XML_DIR = os.getenv("RAW_XML_DIR", "./data/raw_xml")
-MIN_FILE_SIZE = 20000
+MIN_FILE_SIZE = 5000
 
 DEFAULT_WORKERS = max(1, (os.cpu_count() or 2) // 2)
 PIPELINE_WORKERS = max(1, int(os.getenv("PIPELINE_WORKERS", str(DEFAULT_WORKERS))))

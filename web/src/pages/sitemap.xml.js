@@ -1,12 +1,13 @@
-import { getAllOrganizations } from '../lib/db'; 
+import { getDirectoryPagesForSitemap, getStaticPathsData } from '../lib/db'; 
 import { slugify } from '../lib/seo'; 
-import { getAllNteeCategories } from '../lib/ntee'; 
+import { getNteeSlug } from '../lib/ntee'; 
 
 const SITE_URL = import.meta.env.PUBLIC_SITE_URL ?? 'https://nonprofits.philanthropy.org';
+const citySlug = (city, state) => `${city.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${state.toLowerCase()}`;
  
 export async function GET() { 
-  const orgs = await getAllOrganizations(); 
-  const nteeCats = getAllNteeCategories(); 
+  const orgs = await getStaticPathsData(); 
+  const directoryPages = await getDirectoryPagesForSitemap(); 
  
   const urls = []; 
  
@@ -14,17 +15,31 @@ export async function GET() {
   urls.push({ loc: '/search', priority: '0.8' }); 
   urls.push({ loc: '/states', priority: '0.8' }); 
  
+  for (const state of directoryPages.states) {
+    urls.push({
+      loc: `/state/${state.toLowerCase()}`,
+      priority: '0.6',
+    });
+  }
+
+  for (const { city, state } of directoryPages.cities) {
+    urls.push({
+      loc: `/city/${citySlug(city, state)}`,
+      priority: '0.5',
+    });
+  }
+ 
   for (const org of orgs) { 
     urls.push({ 
       loc: `/${org.ein}/${slugify(org.canonical_name)}`, 
-      lastmod: org.updated_at ? new Date(org.updated_at).toISOString().split('T')[0] : null, 
       priority: '0.7', 
     }); 
   } 
  
-  for (const cat of nteeCats) { 
+  const categorySlugs = [...new Set(directoryPages.nteeCodes.map(getNteeSlug))];
+  for (const slug of categorySlugs) { 
     urls.push({ 
-      loc: `/category/${cat.slug}`, 
+      loc: `/category/${slug}`, 
       priority: '0.5', 
     }); 
   } 

@@ -1,26 +1,27 @@
 --- 
 import BaseLayout from '../../layouts/BaseLayout.astro'; 
-import { getOrganization, getFilings } from '../../lib/db'; 
 import { formatEin, slugify, generateTitle, generateMetaDescription, generateOrgSchema, getSubsectionLabel } from '../../lib/seo'; 
 import FinancialChart from '../../components/FinancialChart.astro'; 
 import MissionSection from '../../components/MissionSection.astro'; 
 import FilingCard from '../../components/FilingCard.astro'; 
 import GrantsTable from '../../components/GrantsTable.astro'; 
 import CompensationTable from '../../components/CompensationTable.astro'; 
- 
+import type { OrgFullData } from '../../lib/db';
+
 export async function getStaticPaths() { 
-  const { getAllOrganizations } = await import('../../lib/db'); 
-  const orgs = await getAllOrganizations(); 
-  return orgs.map(org => ({ 
+  const { getAllOrgsFullData } = await import('../../lib/db'); 
+  const allOrgs = await getAllOrgsFullData(); 
+  return allOrgs.map(org => ({ 
     params: { ein: org.ein, slug: slugify(org.canonical_name) }, 
+    props: { org }, 
   })); 
 } 
- 
-const { ein } = Astro.params; 
-const org = await getOrganization(ein); 
-if (!org) return Astro.redirect('/404'); 
- 
-const filings = await getFilings(ein); 
+
+interface Props { org: OrgFullData }
+const { org } = Astro.props as Props;
+const filings = org.filings;
+const grants = org.grants;
+const compensation = org.compensation;
 const latestFiling = filings[0]; 
 const title = generateTitle(org.canonical_name, org.ein); 
 const description = generateMetaDescription(org.canonical_name, org.ein, org.city, org.state, org.tax_year_latest);
@@ -28,7 +29,7 @@ const schema = generateOrgSchema(org.canonical_name, org.ein, org.city, org.stat
 
 const PHILANTHROPY_BASE = 'https://philanthropy.org';
 const PLANNED_GIVING_URL = 'https://plannedgiving.com'; 
---- 
+---
  
 <BaseLayout title={title} description={description} schema={schema}>
 
@@ -122,13 +123,13 @@ const PLANNED_GIVING_URL = 'https://plannedgiving.com';
 
       {latestFiling?.id && (
         <div class="border-t border-gray-100 pt-4">
-          <GrantsTable filingId={latestFiling.id} />
+          <GrantsTable grants={grants.filter(g => g.filing_id === latestFiling.id)} />
         </div>
       )}
 
       {latestFiling?.id && (
         <div class="border-t border-gray-100 pt-4">
-          <CompensationTable filingId={latestFiling.id} />
+          <CompensationTable compensation={compensation.filter(c => c.filing_id === latestFiling.id)} />
         </div>
       )}
 

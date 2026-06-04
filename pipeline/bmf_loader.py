@@ -104,20 +104,23 @@ def load_bmf_csv(filepath, batch_size=1000):
             street = (row.get('STREET') or '').strip()
             ntee_code = (row.get('NTEE_CD') or '').strip()
             subsection = (row.get('SUBSECTION') or '').strip()
-            ruling_date = (row.get('RULING_DATE') or '').strip()
+            ruling_date_raw = (row.get('RULING') or '').strip()
             deductibility = (row.get('DEDUCTIBILITY') or '').strip()
 
-            # Parse year formed from ruling date
+            ruling_date = None
             year_formed = None
-            # Convert YYYYMM to YYYY-MM-DD format for PostgreSQL
-            if ruling_date and len(ruling_date) == 6:
-                ruling_date = ruling_date[:4] + '-' + ruling_date[4:6] + '-01'
-
-            if ruling_date and len(ruling_date) >= 4:
-                try:
-                    year_formed = int(ruling_date[:4])
-                except ValueError:
-                    pass
+            try:
+                if ruling_date_raw and len(ruling_date_raw) == 6:
+                    year = ruling_date_raw[:4]
+                    month = ruling_date_raw[4:6]
+                    if (year.isdigit() and month.isdigit()
+                            and year != '0000' and month != '00'
+                            and 1 <= int(month) <= 12
+                            and int(year) > 1800):
+                        ruling_date = f"{year}-{month}-01"
+                        year_formed = int(year)
+            except (ValueError, TypeError):
+                pass
 
             ntee_category = get_ntee_category(ntee_code)
 
@@ -197,7 +200,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         filepath = sys.argv[1]
     else:
-        filepath = os.path.join(os.getenv('BMF_DIR', './data/bmf'), 'bmf_extract.csv')
+        filepath = os.path.join(os.getenv('BMF_DIR', './data/bmf'), 'bmf_filtered.csv')
 
     if os.path.exists(filepath):
         load_bmf_csv(filepath)

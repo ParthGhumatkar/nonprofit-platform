@@ -1,9 +1,8 @@
-﻿--- 
-import { getGrants } from "../lib/db";
+--- 
+import type { Grant } from "../lib/db";
 import { slugify } from "../lib/seo"; 
-interface Props { filingId: number; } 
-const { filingId } = Astro.props; 
-const rows = await getGrants(filingId); 
+interface Props { grants: Grant[]; } 
+const { grants } = Astro.props; 
 const fmt = (v: any) => {
   if (v == null) return '-';
   const n = parseFloat(v);
@@ -14,7 +13,7 @@ const fmt = (v: any) => {
 
 <section>
   <h2 class="text-2xl font-semibold tracking-tight text-gray-900 mb-6">Grants Made</h2>
-  {rows.length === 0 ? (
+  {grants.length === 0 ? (
     <p class="text-gray-500 text-sm italic">No grants reported in this filing.</p>
   ) : (
     <div class="overflow-x-auto rounded-xl border border-gray-100">
@@ -32,7 +31,7 @@ const fmt = (v: any) => {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
+          {grants.map((r, i) => (
             <tr class={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}`}>
               <td class="py-3 px-4">
                 {r.grantee_ein ? (

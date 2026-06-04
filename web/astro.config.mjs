@@ -6,6 +6,9 @@ const siteUrl = process.env.PUBLIC_SITE_URL || 'https://nonprofits.philanthropy.
 export default defineConfig({
   output: 'static',
   site: siteUrl,
+  build: {
+    concurrency: 4,
+  },
   vite: {
     plugins: [tailwindcss()],
   },

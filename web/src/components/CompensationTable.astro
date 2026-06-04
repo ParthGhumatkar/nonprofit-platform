@@ -1,8 +1,7 @@
-﻿--- 
-import { getCompensation } from "../lib/db"; 
-interface Props { filingId: number; } 
-const { filingId } = Astro.props; 
-const rows = await getCompensation(filingId); 
+--- 
+import type { Compensation } from "../lib/db"; 
+interface Props { compensation: Compensation[]; } 
+const { compensation } = Astro.props; 
 const fmt = (v: any) => {
   if (v == null) return '-';
   const n = parseFloat(v);
@@ -13,7 +12,7 @@ const fmt = (v: any) => {
 
 <section>
   <h2 class="text-2xl font-semibold tracking-tight text-gray-900 mb-6">Executive Compensation</h2>
-  {rows.length === 0 ? (
+  {compensation.length === 0 ? (
     <p class="text-gray-500 text-sm italic">No compensation data reported in this filing.</p>
   ) : (
     <div class="overflow-x-auto">
@@ -29,7 +28,7 @@ const fmt = (v: any) => {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
+          {compensation.map((r, i) => (
             <tr class={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
               <td class="py-3 pr-4 font-semibold text-gray-900">{r.person_name}</td>
               <td class="py-3 pr-4 text-gray-500 max-w-[200px] truncate">{r.title || '-'}</td>
